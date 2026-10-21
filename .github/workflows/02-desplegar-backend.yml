@@ -1,0 +1,39 @@
+name: 02 - Desplegar backend en Azure App Service
+
+# Manual: evita despliegues y gastos inesperados.
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Pruebas y paquete
+        run: mvn -B -f backend/pom.xml clean verify
+      - name: Verificar configuración de Azure
+        env:
+          APP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        run: |
+          if [ -z "$APP_NAME" ]; then echo 'Falta GitHub variable AZURE_WEBAPP_NAME'; exit 1; fi
+      - name: Iniciar sesion Azure con OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Publicar JAR en App Service existente
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: backend/target/*.jar
