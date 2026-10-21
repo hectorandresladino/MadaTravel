@@ -1,0 +1,42 @@
+name: 03 - Desplegar frontend en Azure Static Web Apps
+
+# Manual: requiere recurso Static Web Apps y token en GitHub Secrets.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar URL del backend
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [[ ! "$VITE_API_URL" =~ ^https:// ]]; then
+            echo 'Configure vars.VITE_API_URL como URL HTTPS del backend en Azure.'
+            exit 1
+          fi
+      - name: Instalar paquetes
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Compilar frontend con URL publica de API
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: npm run build
+      - name: Enviar carpeta compilada a Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: frontend/dist
+          api_location: ''
+          output_location: ''
+          skip_app_build: true
