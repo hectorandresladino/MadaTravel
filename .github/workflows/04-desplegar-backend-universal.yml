@@ -1,0 +1,73 @@
+name: 04 - Desplegar backend universal (PostgreSQL por App Service)
+
+# Manual: mismo JAR para cualquier PostgreSQL compatible; no guarda secretos de BD.
+# Cada App Service configura sus propios DB_URL, DB_USER y DB_PASSWORD.
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Nombre del App Service destino (ejemplo: aplicacion)'
+        type: string
+        required: true
+      resource_group:
+        description: 'Grupo de recursos del App Service (ejemplo: clase)'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: backend-universal-${{ inputs.app_name }}
+  cancel-in-progress: false
+
+jobs:
+  build_and_deploy:
+    name: Compilar y desplegar al App Service seleccionado
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      - name: Probar y compilar el backend (sin depender de una BD especifica)
+        run: mvn -B -f backend/pom.xml clean verify
+
+      - name: Iniciar sesion en Azure mediante OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Comprobar App Service y variables de base de datos
+        shell: bash
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          RESOURCE_GROUP: ${{ inputs.resource_group }}
+        run: |
+          set -euo pipefail
+          # No imprimir DB_URL ni ninguna credencial en los logs.
+          az webapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query name -o tsv >/dev/null
+          settings="$(az webapp config appsettings list --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" --query "[?name=='DB_URL' || name=='DB_USER' || name=='DB_PASSWORD'].name" -o tsv)"
+          for required in DB_URL DB_USER DB_PASSWORD; do
+            if ! grep -Fxq "$required" <<< "$settings"; then
+              echo "::error::Falta $required en Azure App Service '$APP_NAME'. Configurela en Configuracion > Variables de entorno."
+              exit 1
+            fi
+          done
+          echo "App Service '$APP_NAME' encontrado y variables DB presentes. La conectividad de PostgreSQL se verificara al iniciar Java."
+
+      - name: Desplegar el JAR en el App Service seleccionado
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ inputs.app_name }}
+          package: 'backend/target/*.jar'
