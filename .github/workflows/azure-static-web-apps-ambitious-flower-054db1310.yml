@@ -14,11 +14,20 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
+    env:
+      VITE_API_URL: ${{ vars.VITE_API_URL_APLICACION }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
           lfs: false
+      - name: Validar URL publica del backend aplicacion
+        shell: bash
+        run: |
+          if [[ ! "$VITE_API_URL" =~ ^https://[^/]+/?$ ]]; then
+            echo "::error::Configure la variable VITE_API_URL_APLICACION en GitHub > Settings > Secrets and variables > Actions > Variables (URL https del backend aplicacion sin rutas)."
+            exit 1
+          fi
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
